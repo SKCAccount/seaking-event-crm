@@ -86,6 +86,7 @@ create table public.deals (
     source text,
     event_url text,
     pipeline text not null default 'accounting',
+    dedup_key text,
     constraint deals_opportunity_type_check
         check (opportunity_type in ('speaking', 'CPE', 'breakout', 'panel', 'other')),
     constraint deals_pipeline_check
@@ -194,3 +195,4 @@ create index contact_notes_contact_id_idx on public.contact_notes using btree (c
 create index contacts_company_id_idx on public.contacts using btree (company_id);
 create index deal_notes_deal_id_idx on public.deal_notes using btree (deal_id);
 create index deals_company_id_idx on public.deals using btree (company_id);
+create unique index deals_dedup_key_key on public.deals (dedup_key) where dedup_key is not null;

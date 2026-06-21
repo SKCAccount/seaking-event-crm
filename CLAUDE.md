@@ -1,54 +1,113 @@
 @AGENTS.md
 
-# Agent Workflow
+# Sea King Capital — Speaking-Gig CRM (project handoff)
 
-This project ships CRM changes through a coordinated agent team rather than a single implementer. Once a plan is approved (via `ExitPlanMode`), the main thread / orchestrator does not implement directly — it routes the work to the custom agents defined under `.claude/agents/`. Each agent's full contract lives in its own file; this section is the map of who does what, and in which order.
+> This file is auto-loaded into every Claude Code session. It is the **source of
+> truth for the state of this project**. `@AGENTS.md` above is the upstream
+> Atomic CRM framework reference (tech stack, dev commands, directory layout);
+> read it for the base app. This section documents **what we built on top** and
+> **where things stand**. See [BACKLOG.md](./BACKLOG.md) for prioritized
+> remaining work and known issues.
 
-## Routing: SIMPLE vs COMPLEX
+## What this is
 
-The **chat-orchestrator** is the user-facing entry point. It routes, narrates progress, and never implements. It classifies each request:
+A self-hosted CRM for **Sea King Capital (SKC)** to run the funnel for **booking
+speaking gigs at accounting events** (CPA society conferences, CPE events, etc.).
+It is a customized fork of **marmelab/atomic-crm** (React + Vite + TypeScript +
+shadcn-admin-kit + Supabase), pointed at SKC's **hosted** Supabase project as the
+single source of truth.
 
-- **SIMPLE** — one cosmetic edit, OR a single-field change on an existing entity (schema + view + type + form + show), OR one list filter that reuses existing components (no new custom React component). Dispatched straight to a **simple-developer** + **merger** — no team, no peer review. `SubagentStop` hooks validate; a deploy-time migration round runs only if a migration was written.
-- **COMPLEX** — everything else. Goes through the full planner → wave → review → merge pipeline below.
+A daily **inbox-scanning agent** (a Supabase edge function) reads a dedicated
+Gmail account subscribed to CPA-society / accounting-event newsletters, uses
+Claude to extract speaking opportunities, and files them into the CRM so SKC can
+review new leads each morning.
 
-## COMPLEX pipeline
+**Decided scope:** this instance is **only** the speaking-gig pipeline
+(accounting now, CPG later via the `pipeline` field). A *separate* future
+instance will handle traditional business "deals" — the two funnels have
+different stages and largely disjoint contacts, so they are kept apart.
 
-1. **planner** — decompose the approved plan into atomic, ordered tickets (JSON) with best-guess file paths and dependency waves. Skip only when the plan is already a single atomic deliverable (one file, one fix, one migration).
-2. **developer** (one per ticket) — implement + commit inside the ticket's git worktree. Tickets in the same wave (`parallel_safe: true`, no mutual dependency) are spawned concurrently as **foreground** subagents — a single message with multiple `Agent(...)` tool uses (no `run_in_background`); the orchestrator's turn resumes once they all return. Developers also write an ADR under `adr/` when a change introduces a structural decision, and never write SQL migrations (those are generated at deploy time).
-3. **quality-reviewer** + **test-validator** (per ticket, in parallel) — quality-reviewer does combined semantic code + security review; test-validator checks integration wiring and e2e presence. Neither re-runs validation (hooks already do).
-4. **merger** — `git merge --no-ff` only; never `git add` / `git commit`. One merger is dispatched per ticket (Stage A: feature branch → session branch); a final promotion merger (`MODE: promote`) moves the session branch onto `main` once the wave is done, serialised across sessions by a `flock` on the shared `.git`.
-5. **documentator** — auto-runs at the end of every COMPLEX session, appending business knowledge to `MEMORY.md` from the session diff. (Mode 1 also captures reusable rules/skills on explicit user request.)
+## Domain model mapping (IMPORTANT)
 
-There is no cross-agent messaging: the orchestrator dispatches every agent as a **foreground subagent** (`Agent(...)`, no `run_in_background`) and drives the wave **synchronously within one continuous turn** (chat-orchestrator.md STATE B) — a foreground call blocks until the subagent returns, and several in one message run concurrently and return together. Each wave flows through three barriered stages: develop (concurrent) → review + bounded retry (concurrent) → merge (sequential, since per-ticket mergers share the session branch). This replaces an earlier event-driven background model, which stalled when a background completion woke the wrong subagent instead of the orchestrator. Each agent's last output line is an **output contract** (`DONE: …` / `FAILED: …` / `APPROVED` / `REJECTED: …`) that the orchestrator parses to choose the next dispatch (see `.claude/rules/agent-output-format.md`). PreToolUse/Agent hooks prepare the worktree (`setup-worktree`) and gate the flow (`enforce-dev-dispatch`, `block-merger-without-review`, `block-promote-unmerged`); SubagentStop hooks validate (`validate-on-stop`) and record review verdicts (`record-review-verdict`).
+We relabeled the UI but **the database table and REST endpoint names are
+unchanged**. When writing code or SQL, use the real names:
 
-## Agent team
-
-| Agent | Model | Role |
+| UI label | Real resource / table | Notes |
 |---|---|---|
-| chat-orchestrator | sonnet | User-facing. Routes, narrates. SIMPLE flow dispatches simple-developer + merger directly (no team). |
-| planner | sonnet | Decomposes the plan into tickets JSON with waves + file hints. |
-| developer | opus | Implements + commits in a worktree. Applies the **Ponytail** minimization ladder (full mode) automatically on every ticket, via an inline prompt directive. Writes ADRs for structural decisions. Never writes SQL migrations (deploy-time only). |
-| simple-developer | sonnet | One cosmetic edit, one single-field entity change, or one filter reusing existing components. Applies the **Ponytail** ladder (full mode) automatically, via an inline prompt directive. No team, no review. |
-| quality-reviewer | sonnet | Combined semantic code + security review only. Never re-runs validation. |
-| test-validator | haiku | Integration wiring + e2e presence. |
-| merger | haiku | `git merge --no-ff` only. Never `git add` / `git commit`. |
-| documentator | sonnet | Mode 1 — captures rules/skills on request. Mode 2 — appends business knowledge to `MEMORY.md` at COMPLEX session end. |
+| **Opportunity / Opportunities** | `deals` (`/rest/v1/deals`) | The speaking opportunity. Relabel is UI-only (i18n). |
+| **Organization / Organizations** | `companies` | A CPA society / conference organizer. |
+| Contact | `contacts` | A program / education chair. (label unchanged) |
+| "Speaking fee" | `deals.amount` | Usually 0. |
 
-Only **developer** runs on opus; everything else is sonnet or haiku.
+## Hosted infrastructure
 
-The **developer** and **simple-developer** apply the **Ponytail** minimization ladder (full mode) on every change, via inline directives in their prompts — the only mechanism that reaches `Agent`-dispatched subagents. Ponytail is also installed **natively** in-repo as on-demand skills (no plugin, no marketplace, no hooks): its skills live in `.claude/skills/ponytail*` and its `/ponytail*` commands in `.claude/commands/`, for interactive use in the main session (`/ponytail-review`, `/ponytail-audit`, …). These do not affect the dev agents, whose ladder comes from the inline directives above.
+- **Supabase project ref:** `oznvdznekexdgblmxwqr` (name: `seaking-accountingevent-crm`, East US). URL `https://oznvdznekexdgblmxwqr.supabase.co`.
+- The Supabase CLI is **linked** to this project; the DB password is cached in the OS credential store (used by `supabase db push`). `supabase secrets set` / `functions deploy` use the logged-in access token.
+- **Frontend env:** `.env.development.local` (gitignored) holds `VITE_SUPABASE_URL` + `VITE_SB_PUBLISHABLE_KEY` (the public anon/publishable key — get it from Supabase dashboard → Project Settings → API). `npm run dev` runs against hosted using these.
+- **Migrations applied to hosted** (`supabase/migrations/`): the 24 Atomic CRM baseline migrations + `20260620120000_deal_speaking_opportunity_fields.sql` + `20260621120000_deals_dedup_key.sql`. Schema source of truth is `supabase/schemas/*.sql` (kept in sync by hand — see "No Docker" below).
+- **Edge functions deployed:** baseline `users`, `update_password`, `merge_contacts`, `delete_note_attachments`, `mcp`, `postmark`, plus our `scan_inbox`.
+- **Supabase secrets set** (values not in repo): `SB_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_USER` (`a36417935@gmail.com`), `SCAN_INBOX_SECRET`. Optional override: `EXTRACTION_MODEL` (defaults to `claude-opus-4-8`).
 
-## The orchestrator's job between hand-offs
+## What we built (current state)
 
-Relay agent reports, surface blockers, and stop to ask the user whenever an agent flags an open question or a `FAILED` outcome the orchestrator can't resolve. (A reviewer `REJECTED` verdict is handled silently by the bounded developer-retry loop, not surfaced to the user.) Do not bypass this flow for "small-looking" changes — the trigger is *plan approved*, not *task size*. Direct requests that never entered plan mode are not subject to this workflow.
+**Frontend customizations** (`src/`):
+- **Funnel stages** (`src/App.tsx` `dealStages`): Identified → Researching → Outreach Sent → In Conversation → Confirmed → Delivered, plus **Passed** (lost). `dealPipelineStatuses = ["confirmed","delivered"]`. Dashboard widgets `dashboard/DealsChart.tsx` and `dashboard/DealsPipeline.tsx` were remapped off the old hardcoded `won`/`lost` values + per-stage forecast multiplier.
+- **Opportunity fields** on `deals` (form `deals/DealInputs.tsx`, show `deals/DealShow.tsx`, type `types.ts`): see the table-shape section below. Choices live in `deals/opportunityChoices.ts` (`opportunityTypeChoices`, `pipelineChoices` — **add `cpg` here** to launch the CPG pipeline; the DB already permits it).
+- **Pipeline dimension** (`deals.pipeline`, default `accounting`) + a list filter in `deals/DealList.tsx`.
+- **Relabeling** Deals→Opportunities, Companies→Organizations, amount→"Speaking fee": all in `providers/commons/englishCrmMessages.ts` + component `_:`/`fallback` strings. (French catalog NOT relabeled.)
+- **Legacy "Category" field removed** from the opportunity UI (column still exists in DB, unused).
+- **Branding** (`src/App.tsx`): title "Sea King Capital" + `public/logos/logo_seaking_{light,dark}.svg` (SKC monogram). `index.html` `<title>`. NOTE: Atomic CRM caches config in browser localStorage after first load — clear it to see branding changes.
+- **"New Opportunities" dashboard widget** (`dashboard/NewOpportunities.tsx`) with a Today/7d/30d toggle, and `dashboard/Dashboard.tsx` gating made opportunity-aware (shows once there are opportunities, even without contacts/notes).
 
-## Supporting rules
+**Backend — inbox agent (`supabase/functions/scan_inbox/index.ts`):**
+- Daily: refresh Gmail token → list `is:unread` → fetch bodies → Claude extracts opportunities via a **forced tool call** into a fixed schema → validate → dedup (`deals.dedup_key`) → insert at stage `identified`, pipeline `accounting`, with `source` set → mark email read. Bounded by `MAX_EMAILS_PER_RUN` (20) and concurrency 4.
+- **Security:** the model gets no tools that act and no DB access; email is untrusted data. Code validates every row before inserting with the service-role key.
+- **Auth:** `verify_jwt = false` (see `config.toml`); the daily cron must send `Authorization: Bearer <SCAN_INBOX_SECRET>`.
+- Idempotency table support: `deals.dedup_key` (unique partial index). No separate scan-state table — "unread → mark read" is the watermark.
 
-The mechanics each agent must follow live in `.claude/rules/`:
+## Exact opportunity table shape (for the agent / anything writing to `deals`)
 
-- **worktree-scope** — every ticket agent works only inside its own worktree; never read/edit the base-branch checkout. Covers session-branch topology and the merge path.
-- **agent-output-format** — the structured-text contract every agent returns.
-- **validation-commands** — typecheck / prettier / unit / e2e are automated by hooks; agents must not run them manually.
-- **security-triggers** — when a change warrants extra security scrutiny.
+Required for a valid insert: `name` (text, not null), `stage` (text, not null; use `identified`). Plus base Atomic CRM deal columns. Our additions:
 
-Claude Code hooks (configured in `.claude/settings.json`, stored in `.claude/hooks/`) must be written as `.mjs` files (ES modules).
+| column | type | notes |
+|---|---|---|
+| `event_name` | text | |
+| `event_date` | date | YYYY-MM-DD |
+| `event_location` | text | |
+| `opportunity_type` | text | CHECK in (`speaking`,`CPE`,`breakout`,`panel`,`other`) |
+| `cpe_eligible` | boolean | default false |
+| `deadline` | date | call-for-speakers close |
+| `source` | text | which newsletter/sender |
+| `event_url` | text | |
+| `pipeline` | text | not null default `accounting`; CHECK in (`accounting`,`cpg`) |
+| `dedup_key` | text | unique (partial); normalized event name + date for idempotency |
+
+## How to run / deploy
+
+```bash
+npm run dev                                   # app on http://localhost:5173 (→ hosted)
+supabase db push --yes                        # apply pending migrations to hosted (password cached)
+supabase functions deploy <name> --use-api    # deploy an edge function (no Docker; use --use-api)
+supabase secrets set NAME=value               # set a function secret (server-side only)
+make registry-gen                             # regenerate registry.json (pre-commit hook runs this)
+```
+
+Trigger the scanner manually:
+```bash
+curl -X POST https://oznvdznekexdgblmxwqr.supabase.co/functions/v1/scan_inbox \
+  -H "Authorization: Bearer <SCAN_INBOX_SECRET>" -H "Content-Type: application/json" -d '{}'
+```
+`SCAN_INBOX_SECRET` is **not in the repo** — it lives in Supabase secrets and in the daily cron job (`cron.job` table). Get it from the cron SQL the user ran, or ask the user.
+
+## Key environment facts & gotchas
+
+- **No Docker** on this machine → we do NOT use `supabase db diff` (needs a local DB). Migrations are **hand-written** into `supabase/migrations/` and `supabase/schemas/*.sql` is updated by hand to match, then `supabase db push`. Verify against hosted after pushing.
+- **`make`** was installed via scoop (`scoop install make`) so the husky pre-commit hook (`make registry-gen` + lint-staged) works.
+- **Node 24** here vs the repo's pinned `22.19.0` (`.nvmrc`) — works, but a mismatch.
+- The repo's `.claude/` multi-agent "ponytail" tooling was **removed** (commit `chore: remove marmelab .claude contributor tooling`) because its hooks blocked migration writes. Do not restore it.
+- Windows shells: prefer the Bash tool for POSIX; PowerShell here-strings mangle native-arg quoting (commit via `git commit -F <file>`).
+
+## Git / repo
+
+- GitHub: **`https://github.com/SKCAccount/seaking-event-crm`** (set as `origin`). The original marmelab remote is `upstream`.
+- Work lives on branch **`setup/seaking-crm`**. Commit only when asked; the pre-commit hook regenerates `registry.json` and runs lint-staged.

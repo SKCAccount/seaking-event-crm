@@ -5,6 +5,7 @@ import { DashboardActivityLog } from "./DashboardActivityLog";
 import { DashboardStepper } from "./DashboardStepper";
 import { DealsChart } from "./DealsChart";
 import { HotContacts } from "./HotContacts";
+import { NewOpportunities } from "./NewOpportunities";
 import { TasksList } from "./TasksList";
 import { Welcome } from "./Welcome";
 
@@ -35,11 +36,14 @@ export const Dashboard = () => {
     return null;
   }
 
-  if (!totalContact) {
+  // Opportunity-first onboarding: once there are opportunities (e.g. added by
+  // the inbox agent), show the dashboard even if the contact-centric steps
+  // (add a contact, add a note) aren't done yet.
+  if (!totalDeal && !totalContact) {
     return <DashboardStepper step={1} />;
   }
 
-  if (!totalContactNotes) {
+  if (!totalDeal && !totalContactNotes) {
     return <DashboardStepper step={2} contactId={dataContact?.[0]?.id} />;
   }
 
@@ -53,6 +57,7 @@ export const Dashboard = () => {
       </div>
       <div className="md:col-span-6">
         <div className="flex flex-col gap-6">
+          {totalDeal ? <NewOpportunities /> : null}
           {totalDeal ? <DealsChart /> : null}
           <DashboardActivityLog />
         </div>
