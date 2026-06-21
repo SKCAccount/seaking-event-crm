@@ -39,7 +39,7 @@ const LoadedGridList = () => {
       {data.length === 0 && (
         <div className="p-2">
           {translate("resources.companies.empty.title", {
-            _: "No companies found",
+            _: "No organizations found",
           })}
         </div>
       )}

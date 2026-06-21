@@ -28,6 +28,7 @@ import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { Deal } from "../types";
 import { ContactList } from "./ContactList";
 import { findDealLabel, formatISODateString } from "./dealUtils";
+import { opportunityTypeChoices, pipelineChoices } from "./opportunityChoices";
 
 export const DealShow = ({ open, id }: { open: boolean; id?: string }) => {
   const redirect = useRedirect();
@@ -50,7 +51,7 @@ export const DealShow = ({ open, id }: { open: boolean; id?: string }) => {
 
 const DealShowContent = () => {
   const translate = useTranslate();
-  const { dealStages, dealCategories, currency } = useConfigurationContext();
+  const { dealStages, currency } = useConfigurationContext();
   const record = useRecordContext<Deal>();
   if (!record) return null;
 
@@ -119,18 +120,6 @@ const DealShowContent = () => {
               </span>
             </div>
 
-            {record.category && (
-              <div className="flex flex-col mr-10">
-                <span className="text-xs text-muted-foreground tracking-wide">
-                  {translate("resources.deals.fields.category")}
-                </span>
-                <span className="text-sm">
-                  {dealCategories.find((c) => c.value === record.category)
-                    ?.label ?? record.category}
-                </span>
-              </div>
-            )}
-
             <div className="flex flex-col mr-10">
               <span className="text-xs text-muted-foreground tracking-wide">
                 {translate("resources.deals.fields.stage")}
@@ -140,6 +129,8 @@ const DealShowContent = () => {
               </span>
             </div>
           </div>
+
+          <DealEventDetails record={record} />
 
           {!!record.contact_ids?.length && (
             <div className="m-4">
@@ -183,6 +174,70 @@ const DealShowContent = () => {
         </div>
       </div>
     </>
+  );
+};
+
+const DealEventDetails = ({ record }: { record: Deal }) => {
+  const details: { label: string; value: string }[] = [
+    { label: "Event", value: record.event_name ?? "" },
+    {
+      label: "Event date",
+      value: record.event_date ? formatISODateString(record.event_date) : "",
+    },
+    { label: "Location", value: record.event_location ?? "" },
+    {
+      label: "Type",
+      value:
+        opportunityTypeChoices.find((c) => c.value === record.opportunity_type)
+          ?.label ??
+        record.opportunity_type ??
+        "",
+    },
+    { label: "CPE eligible", value: record.cpe_eligible ? "Yes" : "No" },
+    {
+      label: "Submission deadline",
+      value: record.deadline ? formatISODateString(record.deadline) : "",
+    },
+    { label: "Lead source", value: record.source ?? "" },
+    {
+      label: "Pipeline",
+      value:
+        pipelineChoices.find((c) => c.value === record.pipeline)?.label ??
+        record.pipeline ??
+        "",
+    },
+  ];
+  const present = details.filter((d) => d.value !== "");
+  if (present.length === 0 && !record.event_url) return null;
+  return (
+    <div className="m-4">
+      <Separator className="mb-4" />
+      <div className="flex flex-wrap gap-x-10 gap-y-4">
+        {present.map((d) => (
+          <div key={d.label} className="flex flex-col">
+            <span className="text-xs text-muted-foreground tracking-wide">
+              {d.label}
+            </span>
+            <span className="text-sm">{d.value}</span>
+          </div>
+        ))}
+        {record.event_url ? (
+          <div className="flex flex-col">
+            <span className="text-xs text-muted-foreground tracking-wide">
+              Event URL
+            </span>
+            <a
+              href={record.event_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-primary underline break-all"
+            >
+              {record.event_url}
+            </a>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 };
 

@@ -11,7 +11,6 @@ import { FilterButton } from "@/components/admin/filter-form";
 import { SearchInput } from "@/components/admin/search-input";
 import { SelectInput } from "@/components/admin/select-input";
 
-import { useConfigurationContext } from "../root/ConfigurationContext";
 import { TopToolbar } from "../layout/TopToolbar";
 import { DealArchivedList } from "./DealArchivedList";
 import { DealCreate } from "./DealCreate";
@@ -20,10 +19,10 @@ import { DealEmpty } from "./DealEmpty";
 import { DealListContent } from "./DealListContent";
 import { DealShow } from "./DealShow";
 import { OnlyMineInput } from "./OnlyMineInput";
+import { pipelineChoices } from "./opportunityChoices";
 
 const DealList = () => {
   const { identity } = useGetIdentity();
-  const { dealCategories } = useConfigurationContext();
   const translate = useTranslate();
 
   if (!identity) return null;
@@ -36,12 +35,12 @@ const DealList = () => {
         placeholder={translate("resources.deals.fields.company_id")}
       />
     </ReferenceInput>,
-    <WrapperField source="category" label="resources.deals.fields.category">
+    <WrapperField source="pipeline" label="Pipeline">
       <SelectInput
-        source="category"
+        source="pipeline"
         label={false}
-        emptyText="resources.deals.fields.category"
-        choices={dealCategories}
+        emptyText="Pipeline"
+        choices={pipelineChoices}
         optionText="label"
         optionValue="value"
       />

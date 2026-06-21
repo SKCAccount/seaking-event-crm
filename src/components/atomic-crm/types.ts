@@ -125,6 +125,16 @@ export type Deal = {
   expected_closing_date: string;
   sales_id: Identifier;
   index: number;
+  // Speaking-opportunity fields (this CRM tracks speaking / CPE gigs at events)
+  event_name?: string;
+  event_date?: string;
+  event_location?: string;
+  opportunity_type?: "speaking" | "CPE" | "breakout" | "panel" | "other";
+  cpe_eligible?: boolean;
+  deadline?: string;
+  source?: string;
+  event_url?: string;
+  pipeline?: "accounting" | "cpg";
 } & Pick<RaRecord, "id">;
 
 export type DealNote = {

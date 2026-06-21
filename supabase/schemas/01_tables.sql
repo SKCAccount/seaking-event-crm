@@ -76,7 +76,20 @@ create table public.deals (
     archived_at timestamp with time zone,
     expected_closing_date date,
     sales_id bigint,
-    index smallint
+    index smallint,
+    event_name text,
+    event_date date,
+    event_location text,
+    opportunity_type text,
+    cpe_eligible boolean not null default false,
+    deadline date,
+    source text,
+    event_url text,
+    pipeline text not null default 'accounting',
+    constraint deals_opportunity_type_check
+        check (opportunity_type in ('speaking', 'CPE', 'breakout', 'panel', 'other')),
+    constraint deals_pipeline_check
+        check (pipeline in ('accounting', 'cpg'))
 );
 
 create table public.deal_notes (

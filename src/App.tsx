@@ -24,6 +24,22 @@ import { CRM } from "@/components/atomic-crm/root/CRM";
  *    />
  * );
  */
-const App = () => <CRM />;
+const App = () => (
+  <CRM
+    title="Sea King Capital"
+    lightModeLogo="./logos/logo_seaking_light.svg"
+    darkModeLogo="./logos/logo_seaking_dark.svg"
+    dealStages={[
+      { value: "identified", label: "Identified" },
+      { value: "researching", label: "Researching" },
+      { value: "outreach-sent", label: "Outreach Sent" },
+      { value: "in-conversation", label: "In Conversation" },
+      { value: "confirmed", label: "Confirmed" },
+      { value: "delivered", label: "Delivered" },
+      { value: "passed", label: "Passed" },
+    ]}
+    dealPipelineStatuses={["confirmed", "delivered"]}
+  />
+);
 
 export default App;

@@ -74,7 +74,7 @@ const ImportFromJsonIdle = ({
     <div className="mb-4">
       <p className="text-sm">
         {translate("crm.import.idle.description_1", {
-          _: "You can import sales, companies, contacts, companies, notes, and tasks.",
+          _: "You can import sales, organizations, contacts, opportunities, notes, and tasks.",
         })}
       </p>
       <p className="text-sm">

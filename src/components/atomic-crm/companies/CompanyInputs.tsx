@@ -67,7 +67,7 @@ const CompanyDisplayInputs = () => {
         validate={required()}
         helperText={false}
         placeholder={translate("resources.companies.fields.name", {
-          _: "Company name",
+          _: "Organization name",
         })}
       />
     </div>
@@ -80,7 +80,7 @@ const CompanyContactInputs = () => {
     <div className="flex flex-col gap-4">
       <h6 className="text-lg font-semibold">
         {translate("resources.companies.field_categories.contact", {
-          _: "Company info",
+          _: "Organization info",
         })}
       </h6>
       <TextInput source="website" helperText={false} validate={isUrl} />

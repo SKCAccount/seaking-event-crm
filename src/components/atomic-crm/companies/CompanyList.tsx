@@ -51,7 +51,7 @@ const CompanyListActions = () => {
       <ExportButton />
       <CreateButton
         label={translate("resources.companies.action.new", {
-          _: "New Company",
+          _: "New Organization",
         })}
       />
     </TopToolbar>

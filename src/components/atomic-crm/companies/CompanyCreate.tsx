@@ -32,7 +32,7 @@ export const CompanyCreate = () => {
                   <CancelButton />
                   <SaveButton
                     label={translate("resources.companies.action.create", {
-                      _: "Create Company",
+                      _: "Create Organization",
                     })}
                   />
                 </div>
