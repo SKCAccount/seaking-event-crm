@@ -64,7 +64,7 @@ Prioritized work for the Sea King Capital speaking-gig CRM. See
 7. **CPG pipeline:** uncomment `cpg` in `src/components/atomic-crm/deals/opportunityChoices.ts` (the DB CHECK already permits it; no migration needed) when SKC starts the CPG vertical.
 8. **Phase 3 — separate "Deals" instance:** stand up a second Atomic CRM instance (new Supabase project + frontend) for traditional business deals (different stages/fields, disjoint contacts). Repeat this project's setup.
 9. **Scanner → Organization linking:** the agent currently stores the organizer name in `deals.description`; it does not match/create a `companies` (Organization) row or set `company_id`. Add matching/auto-create if useful.
-10. **Scanner observability/alerting:** no scan-state table; health is visible only in function logs + the dashboard widget. Add an `inbox_scan_state` row or an alert if a run fails or finds nothing for N days.
+10. **Scanner observability/alerting:** a daily **digest email** (Resend; set `RESEND_API_KEY` + `DIGEST_TO`) was added — it sends after every run (including a "nothing new today" note), doubling as a health heartbeat. PENDING a Resend API key to enable. Still no scan-state table; could add an `inbox_scan_state` row or a louder alert if a run errors or finds nothing for N days.
 11. **Inviting team users** needs a custom SMTP provider on Supabase Auth (Postmark recommended; the `postmark` edge function is deployed and idle). Not needed for solo use.
 
 ## 🟢 Minor / cosmetic

@@ -29,6 +29,13 @@ const SCAN_INBOX_SECRET = Deno.env.get("SCAN_INBOX_SECRET");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Daily digest email (optional). When RESEND_API_KEY + DIGEST_TO are set, the
+// scanner emails a summary after each run via Resend (https://resend.com).
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const DIGEST_TO = Deno.env.get("DIGEST_TO");
+const DIGEST_FROM =
+  Deno.env.get("DIGEST_FROM") ?? "Sea King CRM <onboarding@resend.dev>";
+
 // Bound the work per run so we never approach the edge-function time limit.
 const MAX_EMAILS_PER_RUN = 20;
 // How many extractions to run at once.
@@ -367,6 +374,89 @@ function toDealRow(opp: Opportunity, source: string) {
   };
 }
 
+// --- Daily digest email -----------------------------------------------------
+
+type DealRow = NonNullable<ReturnType<typeof toDealRow>>;
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Build subject + text/html body summarizing what a run filed.
+function buildDigest(items: DealRow[]) {
+  const today = new Date().toISOString().slice(0, 10);
+  const n = items.length;
+  const plural = n === 1 ? "y" : "ies";
+  const subject =
+    n === 0
+      ? `Sea King CRM — no new speaking opportunities (${today})`
+      : `Sea King CRM — ${n} new speaking opportunit${plural} (${today})`;
+
+  if (n === 0) {
+    const msg = `The inbox scan ran on ${today} and found no new speaking opportunities.`;
+    return { subject, text: msg, html: `<p>${msg}</p>` };
+  }
+
+  const meta = (i: DealRow) =>
+    [
+      i.event_date ? `Event ${i.event_date}` : null,
+      i.deadline ? `Deadline ${i.deadline}` : null,
+      i.event_location,
+      i.opportunity_type,
+      i.cpe_eligible ? "CPE" : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+  const text =
+    `The inbox scan filed ${n} new speaking opportunit${plural} on ${today}:\n\n` +
+    items
+      .map(
+        (i) =>
+          `• ${i.name}\n  ${meta(i)}${i.description ? `\n  ${i.description}` : ""}\n  from: ${i.source}`,
+      )
+      .join("\n\n") +
+    `\n\nReview them in the CRM under Opportunities → Identified.`;
+
+  const html =
+    `<p>The inbox scan filed <strong>${n}</strong> new speaking opportunit${plural} on ${today}:</p><ul>` +
+    items
+      .map(
+        (i) =>
+          `<li style="margin-bottom:10px"><strong>${escapeHtml(i.name)}</strong><br>` +
+          `${escapeHtml(meta(i))}` +
+          `${i.description ? `<br><em>${escapeHtml(i.description)}</em>` : ""}` +
+          `<br><span style="color:#888">from: ${escapeHtml(i.source)}</span></li>`,
+      )
+      .join("") +
+    `</ul><p>Review them in the CRM under <strong>Opportunities → Identified</strong>.</p>`;
+
+  return { subject, text, html };
+}
+
+// Send the digest via Resend. No-op unless RESEND_API_KEY + DIGEST_TO are set.
+async function sendDigest(items: DealRow[]): Promise<void> {
+  if (!RESEND_API_KEY || !DIGEST_TO) return;
+  const { subject, text, html } = buildDigest(items);
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: DIGEST_FROM,
+      to: DIGEST_TO.split(",").map((s) => s.trim()),
+      subject,
+      text,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Resend send failed: ${res.status} ${await res.text()}`);
+  }
+}
+
 // --- Handler ----------------------------------------------------------------
 
 Deno.serve(async (req) => {
@@ -418,6 +508,60 @@ Deno.serve(async (req) => {
     );
   }
 
+  // Digest test: POST { "digest_test": true } sends a sample digest email so
+  // you can confirm delivery without waiting for a real run.
+  if (reqBody?.digest_test) {
+    if (!RESEND_API_KEY || !DIGEST_TO) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "RESEND_API_KEY and DIGEST_TO must be set to send a digest.",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+    const sample: DealRow[] = [
+      {
+        name: "CFP — Sample CPA Society Tax Summit 2026",
+        stage: "identified",
+        pipeline: "accounting",
+        source: "Sample Newsletter <news@example.org>",
+        event_name: "Sample Tax Summit 2026",
+        event_date: "2026-10-14",
+        event_location: "San Diego, CA",
+        opportunity_type: "breakout",
+        cpe_eligible: true,
+        deadline: "2026-07-31",
+        event_url: null,
+        description: "Organizer: Sample CPA Society",
+        dedup_key: "sample",
+        index: 0,
+      },
+    ];
+    try {
+      await sendDigest(sample);
+      return new Response(
+        JSON.stringify({ ok: true, digest_test: "sent", to: DIGEST_TO }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    } catch (err) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          digest_test: "failed",
+          error: String(err),
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+  }
+
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   const summary = {
     processed: 0,
@@ -426,6 +570,7 @@ Deno.serve(async (req) => {
     errors: 0,
     errorDetails: [] as string[],
   };
+  const createdItems: DealRow[] = [];
 
   try {
     const token = await getGmailAccessToken();
@@ -462,6 +607,7 @@ Deno.serve(async (req) => {
                 else throw error;
               } else {
                 summary.created++;
+                createdItems.push(row);
               }
             }
             // Mark processed so we never re-scan it.
@@ -476,6 +622,14 @@ Deno.serve(async (req) => {
           }
         }),
       );
+    }
+
+    // Email the daily digest (no-op unless configured). A digest failure must
+    // never fail the scan.
+    try {
+      await sendDigest(createdItems);
+    } catch (err) {
+      console.error("scan_inbox: digest send failed:", err);
     }
 
     return new Response(JSON.stringify({ ok: true, ...summary }), {
