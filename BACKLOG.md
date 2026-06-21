@@ -12,9 +12,11 @@ Prioritized work for the Sea King Capital speaking-gig CRM. See
    the `EXTRACTION_MODEL` secret: `claude-haiku-4-5` to cut cost, `claude-opus-4-8`
    for max accuracy).
 
-2. **Schedule the daily cron.** Function is deployed but not yet triggered daily.
-   Run once in Supabase Dashboard → SQL Editor (fills in the real bearer =
-   `SCAN_INBOX_SECRET`):
+2. **Schedule the daily cron — pending final confirm.** Run once in Supabase
+   Dashboard → SQL Editor. NOTE: `SCAN_INBOX_SECRET` was rotated on 2026-06-21,
+   so the schedule must carry the NEW bearer; re-running the same
+   `cron.schedule('scan-inbox-daily', ...)` upserts by job name (no duplicate).
+   The new value lives in Supabase function secrets + the cron command, not the repo:
    ```sql
    create extension if not exists pg_cron;
    create extension if not exists pg_net;
@@ -27,15 +29,16 @@ Prioritized work for the Sea King Capital speaking-gig CRM. See
    $$);
    ```
 
-3. **Re-run the scanner & validate.** The extraction prompt (`EXTRACTION_SYSTEM`)
-   and tool schema in `supabase/functions/scan_inbox/index.ts` were tuned
-   (multi-event capture, explicit event_date vs. deadline rules, year resolution
-   from the email Date header, confidence levels, per-field schema descriptions)
-   and the default model switched to `claude-sonnet-4-6`; the function is
-   redeployed. STILL PENDING: after the cron SQL (#2), re-run the scanner
-   manually (curl in CLAUDE.md) to confirm opportunities land in the CRM, then
-   iterate on the prompt against what it captures vs. misses. The 3 still-unread
-   newsletters are a finite test set — they get marked read once processed.
+3. **✅ DONE — scanner re-run & prompt tuned/validated.** Verified end-to-end on
+   the live inbox (3 emails → 0 opportunities; they were newsletter-signup
+   confirmations, correctly ignored). The extraction prompt (`EXTRACTION_SYSTEM`)
+   + tool schema were tuned and validated against two test batteries via the new
+   **dry-run mode** (see CLAUDE.md): multi-event capture, event_date vs. deadline,
+   relative/partial-date resolution with no invented dates, negatives ignored
+   (incl. prompt-injection, sponsorship, past-event recaps), format-based
+   `opportunity_type` decoupled from `cpe_eligible`, and confidence surfaced into
+   the row description. Open product call: save-the-date conferences with no open
+   CFP are captured at `confidence: low` — keep or filter? (confirm with SKC).
 
 ## 🟠 Important — durability / correctness
 

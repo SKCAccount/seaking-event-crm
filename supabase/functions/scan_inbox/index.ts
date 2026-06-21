@@ -193,7 +193,7 @@ If you are unsure whether something is a real speaking opportunity, record it wi
 ## Filling each field:
 - name: short, scannable CRM title, ideally "<TYPE> — <ORG> <EVENT> <YEAR>", e.g. "CFP — AICPA ENGAGE 2026" or "Speaking — Texas Society of CPAs Tax Summit 2026". Under ~80 chars.
 - event_name: the event's own name, without the prefix.
-- opportunity_type: "CPE" if CPE credit is offered; "panel" or "breakout" if the email names that format; "speaking" for a general speaking/keynote slot; "other" only if none fit.
+- opportunity_type: classify by the FORMAT of the speaking slot, NOT by whether CPE credit is offered (that is what cpe_eligible captures, and most accounting events offer it). Use "panel" or "breakout" when the email names that format; "CPE" only for a dedicated CPE/CE training session or webinar; "speaking" for a general conference speaking slot or keynote; "other" if none fit.
 - cpe_eligible: true only if the email states CPE credit is offered; otherwise false.
 - event_date: when the event takes place. deadline: when the call for speakers/proposals CLOSES. These are different dates — do not swap them.
 - event_location: city and state (e.g. "Orlando, FL"), or "Virtual"/"Online" for remote events.
@@ -383,6 +383,39 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+  }
+
+  // Dry-run mode (prompt tuning): POST { "dry_run": true, "emails": [ {from,
+  // date, subject, body}, ... ] } to see what the model extracts from sample
+  // emails. Still behind the shared secret; writes nothing to Gmail or the DB.
+  let reqBody: any = {};
+  try {
+    reqBody = await req.json();
+  } catch {
+    // empty / non-JSON body is fine (the cron posts {})
+  }
+  if (reqBody?.dry_run) {
+    const tests = Array.isArray(reqBody.emails) ? reqBody.emails : [reqBody];
+    const results = await Promise.all(
+      tests.map(async (t: any) => {
+        const email: GmailMessage = {
+          id: "dry-run",
+          from: String(t.from ?? ""),
+          date: String(t.date ?? ""),
+          subject: String(t.subject ?? ""),
+          body: String(t.body ?? ""),
+        };
+        const extracted = await extractOpportunities(email);
+        const rows = extracted
+          .map((o) => toDealRow(o, email.from || email.subject))
+          .filter(Boolean);
+        return { subject: email.subject, extracted, rows };
+      }),
+    );
+    return new Response(
+      JSON.stringify({ ok: true, dry_run: true, results }, null, 2),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);

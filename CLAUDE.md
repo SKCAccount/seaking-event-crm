@@ -97,7 +97,15 @@ Trigger the scanner manually:
 curl -X POST https://oznvdznekexdgblmxwqr.supabase.co/functions/v1/scan_inbox \
   -H "Authorization: Bearer <SCAN_INBOX_SECRET>" -H "Content-Type: application/json" -d '{}'
 ```
-`SCAN_INBOX_SECRET` is **not in the repo** — it lives in Supabase secrets and in the daily cron job (`cron.job` table). Get it from the cron SQL the user ran, or ask the user.
+`SCAN_INBOX_SECRET` is **not in the repo** — it lives in Supabase secrets and in the daily cron job (`cron.job` table). Get it from the cron SQL the user ran, or ask the user. (It was rotated 2026-06-21.)
+
+Dry-run the extractor against sample emails (for prompt tuning — writes nothing to Gmail or the DB; see the `dry_run` branch in `scan_inbox/index.ts`):
+```bash
+curl -X POST https://oznvdznekexdgblmxwqr.supabase.co/functions/v1/scan_inbox \
+  -H "Authorization: Bearer <SCAN_INBOX_SECRET>" -H "Content-Type: application/json" \
+  -d '{"dry_run":true,"emails":[{"from":"...","date":"...","subject":"...","body":"..."}]}'
+```
+Returns `{extracted, rows}` per email — what the model pulled out and the validated `deals` row it would insert.
 
 ## Key environment facts & gotchas
 
