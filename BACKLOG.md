@@ -5,12 +5,12 @@ Prioritized work for the Sea King Capital speaking-gig CRM. See
 
 ## 🔴 Blockers (agent won't run until resolved)
 
-1. **Add Anthropic API credits.** The `scan_inbox` pipeline is verified working
-   end-to-end (Gmail → fetch → Claude → CRM) EXCEPT the Claude call returns
-   `400 invalid_request_error: "Your credit balance is too low..."`. Fix at
-   console.anthropic.com → Plans & Billing. `claude-opus-4-8` is accepted by the
-   account; once funded the scanner works. (To cut cost, set Supabase secret
-   `EXTRACTION_MODEL=claude-haiku-4-5`.)
+1. **✅ DONE — Anthropic API credits added.** The `scan_inbox` pipeline is
+   verified working end-to-end (Gmail → fetch → Claude → CRM); the Claude call
+   previously failed with `400 ... "Your credit balance is too low..."` and is
+   now funded. Default extraction model is now `claude-sonnet-4-6` (override via
+   the `EXTRACTION_MODEL` secret: `claude-haiku-4-5` to cut cost, `claude-opus-4-8`
+   for max accuracy).
 
 2. **Schedule the daily cron.** Function is deployed but not yet triggered daily.
    Run once in Supabase Dashboard → SQL Editor (fills in the real bearer =
@@ -27,10 +27,15 @@ Prioritized work for the Sea King Capital speaking-gig CRM. See
    $$);
    ```
 
-3. **After 1 + 2:** re-run the scanner manually (curl in CLAUDE.md) to confirm
-   opportunities land in the CRM, then tune the extraction system prompt in
-   `supabase/functions/scan_inbox/index.ts` (`EXTRACTION_SYSTEM`) based on what
-   it captures vs. misses. There are 3 still-unread newsletters waiting.
+3. **Re-run the scanner & validate.** The extraction prompt (`EXTRACTION_SYSTEM`)
+   and tool schema in `supabase/functions/scan_inbox/index.ts` were tuned
+   (multi-event capture, explicit event_date vs. deadline rules, year resolution
+   from the email Date header, confidence levels, per-field schema descriptions)
+   and the default model switched to `claude-sonnet-4-6`; the function is
+   redeployed. STILL PENDING: after the cron SQL (#2), re-run the scanner
+   manually (curl in CLAUDE.md) to confirm opportunities land in the CRM, then
+   iterate on the prompt against what it captures vs. misses. The 3 still-unread
+   newsletters are a finite test set — they get marked read once processed.
 
 ## 🟠 Important — durability / correctness
 

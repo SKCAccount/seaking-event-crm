@@ -46,7 +46,7 @@ unchanged**. When writing code or SQL, use the real names:
 - **Frontend env:** `.env.development.local` (gitignored) holds `VITE_SUPABASE_URL` + `VITE_SB_PUBLISHABLE_KEY` (the public anon/publishable key — get it from Supabase dashboard → Project Settings → API). `npm run dev` runs against hosted using these.
 - **Migrations applied to hosted** (`supabase/migrations/`): the 24 Atomic CRM baseline migrations + `20260620120000_deal_speaking_opportunity_fields.sql` + `20260621120000_deals_dedup_key.sql`. Schema source of truth is `supabase/schemas/*.sql` (kept in sync by hand — see "No Docker" below).
 - **Edge functions deployed:** baseline `users`, `update_password`, `merge_contacts`, `delete_note_attachments`, `mcp`, `postmark`, plus our `scan_inbox`.
-- **Supabase secrets set** (values not in repo): `SB_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_USER` (`a36417935@gmail.com`), `SCAN_INBOX_SECRET`. Optional override: `EXTRACTION_MODEL` (defaults to `claude-opus-4-8`).
+- **Supabase secrets set** (values not in repo): `SB_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_USER` (`a36417935@gmail.com`), `SCAN_INBOX_SECRET`. Optional override: `EXTRACTION_MODEL` (defaults to `claude-sonnet-4-6`; set `claude-haiku-4-5` to cut cost or `claude-opus-4-8` for max accuracy).
 
 ## What we built (current state)
 
@@ -110,4 +110,4 @@ curl -X POST https://oznvdznekexdgblmxwqr.supabase.co/functions/v1/scan_inbox \
 ## Git / repo
 
 - GitHub: **`https://github.com/SKCAccount/seaking-event-crm`** (set as `origin`). The original marmelab remote is `upstream`.
-- Work lives on branch **`setup/seaking-crm`**. Commit only when asked; the pre-commit hook regenerates `registry.json` and runs lint-staged.
+- Work lives on branch **`setup/seaking-crm`**. Commit changes without asking (user's standing preference, 2026-06-21); push only when asked. The pre-commit hook regenerates `registry.json` and runs lint-staged.
