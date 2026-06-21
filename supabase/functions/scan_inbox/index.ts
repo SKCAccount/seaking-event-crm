@@ -374,6 +374,186 @@ function toDealRow(opp: Opportunity, source: string) {
   };
 }
 
+// --- Matching against existing opportunities --------------------------------
+//
+// Recognize when an incoming find is the SAME event as one already in the CRM
+// (including entries added by hand), tolerating wording differences. A confident
+// ("strong") match ENRICHES the existing row — e.g. a later call-for-speakers
+// fills in the deadline. An uncertain ("possible") match is FLAGGED for review
+// rather than merged, so two genuinely different events are never combined.
+
+const NAME_STOP = new Set([
+  "the",
+  "and",
+  "of",
+  "for",
+  "a",
+  "an",
+  "to",
+  "in",
+  "on",
+  "at",
+  "with",
+  "cfp",
+  "call",
+  "calls",
+  "speaker",
+  "speakers",
+  "proposal",
+  "proposals",
+  "presentation",
+  "presentations",
+  "presenter",
+  "presenters",
+  "speaking",
+  "session",
+  "sessions",
+  "webinar",
+  "webinars",
+  "annual",
+]);
+
+// Four-digit event year, from the date or a 20xx token in the name.
+function yearOf(d: any): string | null {
+  const date = d?.event_date;
+  if (typeof date === "string" && /^\d{4}/.test(date)) return date.slice(0, 4);
+  const m = `${d?.event_name ?? ""} ${d?.name ?? ""}`.match(/\b(20\d{2})\b/);
+  return m ? m[1] : null;
+}
+
+// Distinctive name tokens (drop stop-words, years, and 1-char tokens).
+function nameTokens(d: any): Set<string> {
+  const raw = normalize(`${d?.event_name ?? ""} ${d?.name ?? ""}`);
+  return new Set(
+    raw
+      .split(" ")
+      .filter((t) => t.length > 1 && !/^20\d{2}$/.test(t) && !NAME_STOP.has(t)),
+  );
+}
+
+// How much of the smaller token set is contained in the larger.
+function containment(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  return inter / Math.min(a.size, b.size);
+}
+
+// Organizer, from opp.organizer or the "Organizer: X" note in the description.
+function organizerOf(d: any): string {
+  if (d?.organizer) return normalize(d.organizer);
+  const m = String(d?.description ?? "").match(/Organizer:\s*([^·]+)/i);
+  return m ? normalize(m[1]) : "";
+}
+
+function classifyMatch(
+  incoming: any,
+  existing: any,
+): "strong" | "possible" | "none" {
+  if (
+    incoming?.dedup_key &&
+    existing?.dedup_key &&
+    incoming.dedup_key === existing.dedup_key
+  ) {
+    return "strong";
+  }
+  const yi = yearOf(incoming);
+  const ye = yearOf(existing);
+  if (yi && ye && yi !== ye) return "none"; // different years = different events
+
+  const overlap = containment(nameTokens(incoming), nameTokens(existing));
+  if (overlap === 0) return "none";
+
+  // Contradictory organizers => different events.
+  const oi = organizerOf(incoming);
+  const oe = organizerOf(existing);
+  if (
+    oi &&
+    oe &&
+    containment(new Set(oi.split(" ")), new Set(oe.split(" "))) === 0
+  ) {
+    return "none";
+  }
+
+  const yearAgrees = !!(yi && ye && yi === ye);
+  if (overlap >= 0.8 && yearAgrees) return "strong";
+  if (overlap >= 0.5) return "possible";
+  return "none";
+}
+
+// Best match for an incoming row among existing deals (a strong match wins).
+function findMatch(
+  incoming: any,
+  existingDeals: any[],
+): { kind: string; deal: any } | null {
+  let possible: { kind: string; deal: any } | null = null;
+  for (const deal of existingDeals) {
+    const kind = classifyMatch(incoming, deal);
+    if (kind === "strong") return { kind, deal };
+    if (kind === "possible" && !possible) possible = { kind, deal };
+  }
+  return possible;
+}
+
+function appendNote(desc: any, note: string): string {
+  const base = typeof desc === "string" && desc.trim() ? desc.trim() : "";
+  if (!base) return note.slice(0, 500);
+  if (base.includes(note)) return base.slice(0, 500);
+  return `${base} · ${note}`.slice(0, 500);
+}
+
+// Non-destructive patch that fills BLANK fields on the existing row from the
+// incoming find (never overwrites your edits). Returns null if nothing is new.
+function computeEnrichment(
+  existing: any,
+  incoming: any,
+  today: string,
+): { patch: Record<string, any>; addedDeadline: boolean; note: string } | null {
+  const patch: Record<string, any> = {};
+  const fields = [
+    "deadline",
+    "event_date",
+    "event_location",
+    "event_name",
+    "event_url",
+    "opportunity_type",
+  ];
+  for (const f of fields) {
+    const cur = existing?.[f];
+    const inc = incoming?.[f];
+    if (
+      (cur === null || cur === undefined || cur === "") &&
+      inc != null &&
+      inc !== ""
+    ) {
+      patch[f] = inc;
+    }
+  }
+  const addedKeys = Object.keys(patch);
+  if (addedKeys.length === 0) return null;
+
+  const addedDeadline = "deadline" in patch;
+  const note = addedDeadline
+    ? `⚡ Call for speakers opened — deadline ${patch.deadline} (via ${incoming.source}, ${today})`
+    : `Updated from ${incoming.source} (${today}): ${addedKeys.join(", ")}`;
+  patch.description = appendNote(existing?.description, note);
+  return { patch, addedDeadline, note };
+}
+
+// Load existing accounting opportunities once per run, to match new finds
+// against (including ones added manually in the CRM).
+async function loadExistingDeals(supabase: any): Promise<any[]> {
+  const { data, error } = await supabase
+    .from("deals")
+    .select(
+      "id,name,event_name,event_date,deadline,event_location,event_url,opportunity_type,cpe_eligible,description,dedup_key",
+    )
+    .eq("pipeline", "accounting")
+    .limit(1000);
+  if (error) throw error;
+  return data ?? [];
+}
+
 // --- Daily digest email -----------------------------------------------------
 
 type DealRow = NonNullable<ReturnType<typeof toDealRow>>;
@@ -382,62 +562,103 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Build subject + text/html body summarizing what a run filed.
-function buildDigest(items: DealRow[]) {
-  const today = new Date().toISOString().slice(0, 10);
-  const n = items.length;
-  const plural = n === 1 ? "y" : "ies";
-  const subject =
-    n === 0
-      ? `Sea King CRM — no new speaking opportunities (${today})`
-      : `Sea King CRM — ${n} new speaking opportunit${plural} (${today})`;
+// One-line summary of an opportunity's key facts.
+function metaLine(i: any): string {
+  return [
+    i.event_date ? `Event ${i.event_date}` : null,
+    i.deadline ? `Deadline ${i.deadline}` : null,
+    i.event_location,
+    i.opportunity_type,
+    i.cpe_eligible ? "CPE" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
-  if (n === 0) {
+// Build subject + text/html body. `updated` (CFPs / changes to events already
+// in the CRM) leads as "now actionable"; `created` lists brand-new finds.
+function buildDigest(created: any[], updated: any[]) {
+  const today = new Date().toISOString().slice(0, 10);
+  const nc = created.length;
+  const nu = updated.length;
+
+  if (nc === 0 && nu === 0) {
+    const subject = `Sea King CRM — no new speaking opportunities (${today})`;
     const msg = `The inbox scan ran on ${today} and found no new speaking opportunities.`;
     return { subject, text: msg, html: `<p>${msg}</p>` };
   }
 
-  const meta = (i: DealRow) =>
-    [
-      i.event_date ? `Event ${i.event_date}` : null,
-      i.deadline ? `Deadline ${i.deadline}` : null,
-      i.event_location,
-      i.opportunity_type,
-      i.cpe_eligible ? "CPE" : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
+  const headline = [
+    nu > 0 ? `${nu} update${nu === 1 ? "" : "s"} to tracked events` : null,
+    nc > 0 ? `${nc} new` : null,
+  ]
+    .filter(Boolean)
+    .join(" + ");
+  const subject = `Sea King CRM — ${headline} (${today})`;
 
-  const text =
-    `The inbox scan filed ${n} new speaking opportunit${plural} on ${today}:\n\n` +
-    items
-      .map(
-        (i) =>
-          `• ${i.name}\n  ${meta(i)}${i.description ? `\n  ${i.description}` : ""}\n  from: ${i.source}`,
-      )
-      .join("\n\n") +
-    `\n\nReview them in the CRM under Opportunities → Identified.`;
+  let text = "";
+  if (nu > 0) {
+    text +=
+      `⚡ NOW ACTIONABLE — updates to events you're already tracking (${nu}):\n\n` +
+      updated
+        .map(
+          (u) =>
+            `• ${u.name}\n  ${u.change}${u.meta ? `\n  ${u.meta}` : ""}\n  from: ${u.source}`,
+        )
+        .join("\n\n") +
+      "\n\n";
+  }
+  if (nc > 0) {
+    text +=
+      `New speaking opportunities (${nc}):\n\n` +
+      created
+        .map(
+          (i) =>
+            `• ${i.name}\n  ${metaLine(i)}${i.description ? `\n  ${i.description}` : ""}\n  from: ${i.source}`,
+        )
+        .join("\n\n") +
+      "\n\n";
+  }
+  text += `Review them in the CRM under Opportunities → Identified.`;
 
-  const html =
-    `<p>The inbox scan filed <strong>${n}</strong> new speaking opportunit${plural} on ${today}:</p><ul>` +
-    items
-      .map(
-        (i) =>
-          `<li style="margin-bottom:10px"><strong>${escapeHtml(i.name)}</strong><br>` +
-          `${escapeHtml(meta(i))}` +
-          `${i.description ? `<br><em>${escapeHtml(i.description)}</em>` : ""}` +
-          `<br><span style="color:#888">from: ${escapeHtml(i.source)}</span></li>`,
-      )
-      .join("") +
-    `</ul><p>Review them in the CRM under <strong>Opportunities → Identified</strong>.</p>`;
+  let html = "";
+  if (nu > 0) {
+    html +=
+      `<h3>⚡ Now actionable — updates to events you're already tracking (${nu})</h3><ul>` +
+      updated
+        .map(
+          (u) =>
+            `<li style="margin-bottom:10px"><strong>${escapeHtml(u.name)}</strong><br>` +
+            `${escapeHtml(u.change)}` +
+            `${u.meta ? `<br>${escapeHtml(u.meta)}` : ""}` +
+            `<br><span style="color:#888">from: ${escapeHtml(u.source)}</span></li>`,
+        )
+        .join("") +
+      `</ul>`;
+  }
+  if (nc > 0) {
+    html +=
+      `<h3>New speaking opportunities (${nc})</h3><ul>` +
+      created
+        .map(
+          (i) =>
+            `<li style="margin-bottom:10px"><strong>${escapeHtml(i.name)}</strong><br>` +
+            `${escapeHtml(metaLine(i))}` +
+            `${i.description ? `<br><em>${escapeHtml(i.description)}</em>` : ""}` +
+            `<br><span style="color:#888">from: ${escapeHtml(i.source)}</span></li>`,
+        )
+        .join("") +
+      `</ul>`;
+  }
+  html += `<p>Review them in the CRM under <strong>Opportunities → Identified</strong>.</p>`;
 
   return { subject, text, html };
 }
 
 // Send the digest via Resend. No-op unless RESEND_API_KEY + DIGEST_TO are set.
-async function sendDigest(items: DealRow[]): Promise<void> {
+async function sendDigest(created: any[], updated: any[]): Promise<void> {
   if (!RESEND_API_KEY || !DIGEST_TO) return;
-  const { subject, text, html } = buildDigest(items);
+  const { subject, text, html } = buildDigest(created, updated);
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -508,8 +729,44 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Digest test: POST { "digest_test": true } sends a sample digest email so
-  // you can confirm delivery without waiting for a real run.
+  // Match test: POST { "match_test": true, "existing": [...], "incoming": [...] }
+  // classifies each incoming opportunity against the provided existing rows
+  // (new / possible duplicate / strong match with the enrichment patch). Pure,
+  // no DB — for validating the matching + enrichment logic.
+  if (reqBody?.match_test) {
+    const existingRows = Array.isArray(reqBody.existing)
+      ? reqBody.existing
+      : [];
+    const incoming = Array.isArray(reqBody.incoming) ? reqBody.incoming : [];
+    const today = String(
+      reqBody.today ?? new Date().toISOString().slice(0, 10),
+    );
+    const results = incoming.map((opp: any) => {
+      const row = toDealRow(opp, String(opp?.source ?? opp?.from ?? "test"));
+      if (!row) return { input: opp?.name ?? null, decision: "invalid" };
+      const m = findMatch(row, existingRows);
+      if (m && m.kind === "strong") {
+        const enr = computeEnrichment(m.deal, row, today);
+        return {
+          name: row.name,
+          decision: enr ? "strong-enrich" : "strong-nochange",
+          matched: m.deal.name,
+          patch: enr?.patch ?? null,
+        };
+      }
+      if (m && m.kind === "possible") {
+        return { name: row.name, decision: "possible", matched: m.deal.name };
+      }
+      return { name: row.name, decision: "new" };
+    });
+    return new Response(
+      JSON.stringify({ ok: true, match_test: true, results }, null, 2),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  // Digest test: POST { "digest_test": true } sends a sample digest email
+  // (one update + one new) so you can confirm delivery and see the format.
   if (reqBody?.digest_test) {
     if (!RESEND_API_KEY || !DIGEST_TO) {
       return new Response(
@@ -523,26 +780,35 @@ Deno.serve(async (req) => {
         },
       );
     }
-    const sample: DealRow[] = [
+    const sampleCreated: DealRow[] = [
       {
-        name: "CFP — Sample CPA Society Tax Summit 2026",
+        name: "Speaking — Sample State CPA Forum 2026",
         stage: "identified",
         pipeline: "accounting",
         source: "Sample Newsletter <news@example.org>",
-        event_name: "Sample Tax Summit 2026",
-        event_date: "2026-10-14",
-        event_location: "San Diego, CA",
-        opportunity_type: "breakout",
+        event_name: "Sample State CPA Forum 2026",
+        event_date: "2026-11-05",
+        event_location: "Virtual",
+        opportunity_type: "speaking",
         cpe_eligible: true,
-        deadline: "2026-07-31",
+        deadline: null,
         event_url: null,
-        description: "Organizer: Sample CPA Society",
-        dedup_key: "sample",
+        description: "Organizer: Sample State CPA Society · Confidence: low",
+        dedup_key: "sample-created",
         index: 0,
       },
     ];
+    const sampleUpdated = [
+      {
+        name: "CFP — Sample CPA Society Tax Summit 2026",
+        change:
+          "⚡ Call for speakers opened — deadline 2026-07-31 (via Sample Newsletter)",
+        meta: "Event 2026-10-14 · Deadline 2026-07-31 · San Diego, CA · breakout · CPE",
+        source: "Sample Newsletter <news@example.org>",
+      },
+    ];
     try {
-      await sendDigest(sample);
+      await sendDigest(sampleCreated, sampleUpdated);
       return new Response(
         JSON.stringify({ ok: true, digest_test: "sent", to: DIGEST_TO }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -566,68 +832,127 @@ Deno.serve(async (req) => {
   const summary = {
     processed: 0,
     created: 0,
+    updated: 0,
     skipped: 0,
     errors: 0,
     errorDetails: [] as string[],
   };
   const createdItems: DealRow[] = [];
+  const updatedItems: {
+    name: string;
+    change: string;
+    meta: string;
+    source: string;
+  }[] = [];
 
   try {
     const token = await getGmailAccessToken();
     const ids = await listUnreadIds(token);
 
-    // Process emails with bounded concurrency.
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Phase 1: fetch + extract with bounded concurrency (no DB writes yet).
+    const extracted: {
+      id: string;
+      email: GmailMessage;
+      opps: Opportunity[];
+    }[] = [];
     for (let i = 0; i < ids.length; i += CONCURRENCY) {
       const batch = ids.slice(i, i + CONCURRENCY);
-      await Promise.all(
+      const batchResults = await Promise.all(
         batch.map(async (id) => {
           try {
             const email = await getMessage(token, id);
             const opps = await extractOpportunities(email);
-            for (const opp of opps) {
-              const row = toDealRow(opp, email.from || email.subject);
-              if (!row) {
-                summary.skipped++;
-                continue;
-              }
-              // Idempotency: skip events already in the pipeline.
-              const { data: existing } = await supabase
-                .from("deals")
-                .select("id")
-                .eq("dedup_key", row.dedup_key)
-                .maybeSingle();
-              if (existing) {
-                summary.skipped++;
-                continue;
-              }
-              const { error } = await supabase.from("deals").insert(row);
-              if (error) {
-                // 23505 = unique violation (raced dedup_key) → treat as skip.
-                if (error.code === "23505") summary.skipped++;
-                else throw error;
-              } else {
-                summary.created++;
-                createdItems.push(row);
-              }
-            }
-            // Mark processed so we never re-scan it.
-            await markRead(token, id);
-            summary.processed++;
+            return { id, email, opps };
           } catch (err) {
-            console.error(`scan_inbox: email ${id} failed:`, err);
+            console.error(`scan_inbox: email ${id} fetch/extract failed:`, err);
             summary.errors++;
             if (summary.errorDetails.length < 5) {
               summary.errorDetails.push(String(err).slice(0, 400));
             }
+            return null;
           }
         }),
       );
+      for (const r of batchResults) if (r) extracted.push(r);
+    }
+
+    // Phase 2: match each find against the CRM, then enrich or insert. Serial,
+    // so the in-memory match set stays consistent across emails in one run.
+    const existing = await loadExistingDeals(supabase);
+    for (const { id, email, opps } of extracted) {
+      try {
+        for (const opp of opps) {
+          const row = toDealRow(opp, email.from || email.subject);
+          if (!row) {
+            summary.skipped++;
+            continue;
+          }
+          const match = findMatch(row, existing);
+
+          // Strong match → enrich the existing row (e.g. a later CFP fills the
+          // deadline). If it adds nothing new, skip it.
+          if (match && match.kind === "strong") {
+            const enr = computeEnrichment(match.deal, row, today);
+            if (!enr) {
+              summary.skipped++;
+              continue;
+            }
+            const { error } = await supabase
+              .from("deals")
+              .update(enr.patch)
+              .eq("id", match.deal.id);
+            if (error) throw error;
+            Object.assign(match.deal, enr.patch); // keep the snapshot current
+            summary.updated++;
+            updatedItems.push({
+              name: match.deal.name,
+              change: enr.note,
+              meta: metaLine(match.deal),
+              source: row.source,
+            });
+            continue;
+          }
+
+          // Possible match → still insert, but flag it for human review.
+          if (match && match.kind === "possible") {
+            row.description = appendNote(
+              row.description,
+              `Possible duplicate of: ${match.deal.name}`,
+            );
+          }
+          const { data: inserted, error } = await supabase
+            .from("deals")
+            .insert(row)
+            .select("id")
+            .maybeSingle();
+          if (error) {
+            // 23505 = unique violation (raced dedup_key) → treat as skip.
+            if (error.code === "23505") summary.skipped++;
+            else throw error;
+          } else {
+            summary.created++;
+            createdItems.push(row);
+            existing.push({ ...row, id: inserted?.id }); // now tracked this run
+          }
+        }
+        // Mark processed so we never re-scan it.
+        await markRead(token, id);
+        summary.processed++;
+      } catch (err) {
+        console.error(`scan_inbox: email ${id} persist failed:`, err);
+        summary.errors++;
+        if (summary.errorDetails.length < 5) {
+          summary.errorDetails.push(String(err).slice(0, 400));
+        }
+      }
     }
 
     // Email the daily digest (no-op unless configured). A digest failure must
     // never fail the scan.
     try {
-      await sendDigest(createdItems);
+      await sendDigest(createdItems, updatedItems);
     } catch (err) {
       console.error("scan_inbox: digest send failed:", err);
     }

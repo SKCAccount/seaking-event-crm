@@ -107,6 +107,10 @@ curl -X POST https://oznvdznekexdgblmxwqr.supabase.co/functions/v1/scan_inbox \
 ```
 Returns `{extracted, rows}` per email — what the model pulled out and the validated `deals` row it would insert.
 
+Two more POST-body test modes on the same endpoint (all behind `SCAN_INBOX_SECRET`):
+- `{"match_test":true,"existing":[...rows],"incoming":[...opps],"today":"YYYY-MM-DD"}` — pure, no DB: classifies each incoming opp against the given existing rows as `new` / `possible` / `strong-enrich` (with the enrichment patch). Validates the dedup/CFP-escalation logic.
+- `{"digest_test":true}` — sends a sample digest email (one update + one new) to `DIGEST_TO` to confirm delivery/format.
+
 ## Key environment facts & gotchas
 
 - **No Docker** on this machine → we do NOT use `supabase db diff` (needs a local DB). Migrations are **hand-written** into `supabase/migrations/` and `supabase/schemas/*.sql` is updated by hand to match, then `supabase db push`. Verify against hosted after pushing.

@@ -55,9 +55,15 @@ Prioritized work for the Sea King Capital speaking-gig CRM. See
    form shows the Event-details fields (no Category), the "New Opportunities"
    dashboard widget renders, and nav reads Opportunities/Organizations. Low risk
    (typecheck/lint pass) but never eyeballed.
-6. **Dedup is naive** — `dedup_key` = normalized event name + date. Slight name
-   variations across newsletters can still create duplicates; improve if it's
-   noisy in practice.
+6. **Dedup / matching — upgraded 2026-06-21.** New finds are matched against all
+   accounting opportunities (including manually-added ones) by name-token overlap
+   + event year, with organizer used to disambiguate. A confident match ENRICHES
+   the existing row instead of skipping — e.g. a later call-for-speakers fills in
+   the `deadline` and is surfaced in the digest's "⚡ Now actionable" section; an
+   uncertain match still inserts but appends "Possible duplicate of X" for review.
+   By design it errs toward flagging over merging (a find that omits the date
+   can't confirm the year, so it's flagged "possible" rather than merged). See the
+   `match_test` mode in `scan_inbox/index.ts` for the decision logic.
 
 ## 🟡 Enhancements / phase work
 
