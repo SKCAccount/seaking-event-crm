@@ -347,14 +347,12 @@ function toDealRow(opp: Opportunity, source: string) {
   const name = text(opp.name) ?? text(opp.event_name);
   if (!name) return null; // nothing usable
 
-  // Surface organizer + (when not "high") the model's confidence so SKC can
-  // triage the morning review — low-confidence rows are kept, not dropped.
-  const descParts: string[] = [];
+  // Organizer goes in the description; confidence + actionable are columns.
   const organizer = text(opp.organizer);
-  if (organizer) descParts.push(`Organizer: ${organizer}`);
-  if (opp.confidence === "medium" || opp.confidence === "low") {
-    descParts.push(`Confidence: ${opp.confidence}`);
-  }
+  const deadline = isoDate(opp.deadline);
+  const confidence = ["high", "medium", "low"].includes(opp.confidence ?? "")
+    ? opp.confidence
+    : null;
 
   return {
     name,
@@ -366,9 +364,12 @@ function toDealRow(opp: Opportunity, source: string) {
     event_location: text(opp.event_location),
     opportunity_type: type,
     cpe_eligible: opp.cpe_eligible === true,
-    deadline: isoDate(opp.deadline),
+    deadline,
     event_url: text(opp.event_url),
-    description: descParts.length ? descParts.join(" · ").slice(0, 500) : null,
+    description: organizer ? `Organizer: ${organizer}` : null,
+    confidence,
+    // Actionable = there's an open call / submission deadline to act on.
+    actionable: deadline != null,
     dedup_key: dedupKey(opp),
     index: 0,
   };
@@ -533,6 +534,11 @@ function computeEnrichment(
   if (addedKeys.length === 0) return null;
 
   const addedDeadline = "deadline" in patch;
+  // A newly-opened call for speakers makes the event actionable + high-priority.
+  if (addedDeadline) {
+    patch.actionable = true;
+    patch.confidence = "high";
+  }
   const note = addedDeadline
     ? `⚡ Call for speakers opened — deadline ${patch.deadline} (via ${incoming.source}, ${today})`
     : `Updated from ${incoming.source} (${today}): ${addedKeys.join(", ")}`;
@@ -546,7 +552,7 @@ async function loadExistingDeals(supabase: any): Promise<any[]> {
   const { data, error } = await supabase
     .from("deals")
     .select(
-      "id,name,event_name,event_date,deadline,event_location,event_url,opportunity_type,cpe_eligible,description,dedup_key",
+      "id,name,event_name,event_date,deadline,event_location,event_url,opportunity_type,cpe_eligible,description,dedup_key,confidence,actionable",
     )
     .eq("pipeline", "accounting")
     .limit(1000);
@@ -570,6 +576,7 @@ function metaLine(i: any): string {
     i.event_location,
     i.opportunity_type,
     i.cpe_eligible ? "CPE" : null,
+    i.confidence ? `${i.confidence} confidence` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -793,7 +800,9 @@ Deno.serve(async (req) => {
         cpe_eligible: true,
         deadline: null,
         event_url: null,
-        description: "Organizer: Sample State CPA Society · Confidence: low",
+        description: "Organizer: Sample State CPA Society",
+        confidence: "low",
+        actionable: false,
         dedup_key: "sample-created",
         index: 0,
       },

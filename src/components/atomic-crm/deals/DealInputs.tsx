@@ -13,7 +13,11 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { contactOptionText } from "../misc/ContactOption";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import { AutocompleteCompanyInput } from "../companies/AutocompleteCompanyInput.tsx";
-import { opportunityTypeChoices, pipelineChoices } from "./opportunityChoices";
+import {
+  confidenceChoices,
+  opportunityTypeChoices,
+  pipelineChoices,
+} from "./opportunityChoices";
 
 export const DealInputs = () => {
   const isMobile = useIsMobile();
@@ -81,6 +85,19 @@ const DealEventInputs = () => {
         helperText={false}
       />
       <TextInput source="source" label="Lead source" helperText={false} />
+      <SelectInput
+        source="confidence"
+        label="Confidence"
+        choices={confidenceChoices}
+        optionText="label"
+        optionValue="value"
+        helperText={false}
+      />
+      <BooleanInput
+        source="actionable"
+        label="Now actionable (call for speakers open)"
+        helperText={false}
+      />
     </div>
   );
 };

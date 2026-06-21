@@ -44,7 +44,7 @@ unchanged**. When writing code or SQL, use the real names:
 - **Supabase project ref:** `oznvdznekexdgblmxwqr` (name: `seaking-accountingevent-crm`, East US). URL `https://oznvdznekexdgblmxwqr.supabase.co`.
 - The Supabase CLI is **linked** to this project; the DB password is cached in the OS credential store (used by `supabase db push`). `supabase secrets set` / `functions deploy` use the logged-in access token.
 - **Frontend env:** `.env.development.local` (gitignored) holds `VITE_SUPABASE_URL` + `VITE_SB_PUBLISHABLE_KEY` (the public anon/publishable key — get it from Supabase dashboard → Project Settings → API). `npm run dev` runs against hosted using these.
-- **Migrations applied to hosted** (`supabase/migrations/`): the 24 Atomic CRM baseline migrations + `20260620120000_deal_speaking_opportunity_fields.sql` + `20260621120000_deals_dedup_key.sql`. Schema source of truth is `supabase/schemas/*.sql` (kept in sync by hand — see "No Docker" below).
+- **Migrations applied to hosted** (`supabase/migrations/`): the 24 Atomic CRM baseline migrations + `20260620120000_deal_speaking_opportunity_fields.sql` + `20260621120000_deals_dedup_key.sql` + `20260621130000_deal_confidence_actionable.sql`. Schema source of truth is `supabase/schemas/*.sql` (kept in sync by hand — see "No Docker" below).
 - **Edge functions deployed:** baseline `users`, `update_password`, `merge_contacts`, `delete_note_attachments`, `mcp`, `postmark`, plus our `scan_inbox`.
 - **Supabase secrets set** (values not in repo): `SB_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_USER` (`a36417935@gmail.com`), `SCAN_INBOX_SECRET`. Optional override: `EXTRACTION_MODEL` (defaults to `claude-sonnet-4-6`; set `claude-haiku-4-5` to cut cost or `claude-opus-4-8` for max accuracy). Daily-digest email (optional, via Resend): set `RESEND_API_KEY` + `DIGEST_TO` (comma-separated recipients) to email a per-run summary; `DIGEST_FROM` optional (defaults to `onboarding@resend.dev`). SET and live: `seakingcapital.com` is verified in Resend; the digest sends from `crm@seakingcapital.com` (`DIGEST_FROM`) to `derek@seakingcapital.com` (`DIGEST_TO`) after each run.
 
@@ -81,6 +81,8 @@ Required for a valid insert: `name` (text, not null), `stage` (text, not null; u
 | `event_url` | text | |
 | `pipeline` | text | not null default `accounting`; CHECK in (`accounting`,`cpg`) |
 | `dedup_key` | text | unique (partial); normalized event name + date for idempotency |
+| `confidence` | text | CHECK in (`high`,`medium`,`low`); shown as a board badge (set by the agent; was previously in `description`) |
+| `actionable` | boolean | not null default false; true when a call/deadline is open (set on new finds with a deadline + on CFP escalation). Board badge |
 
 ## How to run / deploy
 

@@ -87,10 +87,14 @@ create table public.deals (
     event_url text,
     pipeline text not null default 'accounting',
     dedup_key text,
+    confidence text,
+    actionable boolean not null default false,
     constraint deals_opportunity_type_check
         check (opportunity_type in ('speaking', 'CPE', 'breakout', 'panel', 'other')),
     constraint deals_pipeline_check
-        check (pipeline in ('accounting', 'cpg'))
+        check (pipeline in ('accounting', 'cpg')),
+    constraint deals_confidence_check
+        check (confidence in ('high', 'medium', 'low'))
 );
 
 create table public.deal_notes (

@@ -23,3 +23,13 @@ export const pipelineChoices: LabeledValue[] = [
   { value: "accounting", label: "Accounting" },
   // { value: "cpg", label: "CPG" },
 ];
+
+/**
+ * Confidence that an extracted opportunity is real and worth pursuing. Set by
+ * the inbox agent; stored in `deals.confidence`.
+ */
+export const confidenceChoices: LabeledValue[] = [
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+];

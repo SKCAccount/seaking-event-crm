@@ -51,10 +51,12 @@ Prioritized work for the Sea King Capital speaking-gig CRM. See
    a **Gmail App Password + IMAP** (durable, no OAuth). IMAP from a Supabase edge
    function needs raw TCP — confirm support, else move the scanner runner.
 5. **Verify the authenticated UI** (no login was available during build): sign in
-   and confirm the Opportunities board shows the 7 stage columns, the opportunity
-   form shows the Event-details fields (no Category), the "New Opportunities"
-   dashboard widget renders, and nav reads Opportunities/Organizations. Low risk
-   (typecheck/lint pass) but never eyeballed.
+   and confirm the Opportunities board shows the 7 stage columns; the opportunity
+   form shows the Event-details fields (no Category) plus the new **Confidence**
+   select + **"Now actionable"** toggle; the board cards and show view render the
+   **Confidence / "⚡ Deadline" badges** (`DealStatusBadges`); the "New
+   Opportunities" dashboard widget renders; and nav reads
+   Opportunities/Organizations. Builds + typechecks clean but never eyeballed.
 6. **Dedup / matching — upgraded 2026-06-21.** New finds are matched against all
    accounting opportunities (including manually-added ones) by name-token overlap
    + event year, with organizer used to disambiguate. A confident match ENRICHES

@@ -135,6 +135,8 @@ export type Deal = {
   source?: string;
   event_url?: string;
   pipeline?: "accounting" | "cpg";
+  confidence?: "high" | "medium" | "low";
+  actionable?: boolean;
 } & Pick<RaRecord, "id">;
 
 export type DealNote = {

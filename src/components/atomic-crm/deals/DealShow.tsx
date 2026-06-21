@@ -27,6 +27,7 @@ import { NotesIterator } from "../notes/NotesIterator";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { Deal } from "../types";
 import { ContactList } from "./ContactList";
+import { DealStatusBadges } from "./DealStatusBadges";
 import { findDealLabel, formatISODateString } from "./dealUtils";
 import { opportunityTypeChoices, pipelineChoices } from "./opportunityChoices";
 
@@ -85,6 +86,8 @@ const DealShowContent = () => {
               )}
             </div>
           </div>
+
+          <DealStatusBadges deal={record} className="m-4 mb-6" />
 
           <div className="flex gap-8 m-4">
             <div className="flex flex-col mr-10">

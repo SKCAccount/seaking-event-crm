@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CompanyAvatar } from "../companies/CompanyAvatar";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { Deal } from "../types";
+import { DealStatusBadges } from "./DealStatusBadges";
 
 export const DealCard = ({ deal, index }: { deal: Deal; index: number }) => {
   if (!deal) return null;
@@ -92,6 +93,7 @@ export const DealCardContent = ({
                 optionValue="value"
               />
             </p>
+            <DealStatusBadges deal={deal} className="mt-1" />
           </CardContent>
         </Card>
       </RecordContextProvider>
