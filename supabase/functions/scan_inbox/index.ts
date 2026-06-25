@@ -350,17 +350,23 @@ function toDealRow(opp: Opportunity, source: string) {
   // Organizer goes in the description; confidence + actionable are columns.
   const organizer = text(opp.organizer);
   const deadline = isoDate(opp.deadline);
+  const eventDate = isoDate(opp.event_date);
   const confidence = ["high", "medium", "low"].includes(opp.confidence ?? "")
     ? opp.confidence
     : null;
+  // Atomic CRM's deal UI expects amount + expected_closing_date to be present
+  // (the manual form requires them). Default them so agent rows render cleanly.
+  const today = new Date().toISOString().slice(0, 10);
 
   return {
     name,
     stage: "identified",
     pipeline: "accounting",
     source: source.slice(0, 500),
+    amount: 0,
+    expected_closing_date: deadline ?? eventDate ?? today,
     event_name: text(opp.event_name),
-    event_date: isoDate(opp.event_date),
+    event_date: eventDate,
     event_location: text(opp.event_location),
     opportunity_type: type,
     cpe_eligible: opp.cpe_eligible === true,
@@ -793,6 +799,8 @@ Deno.serve(async (req) => {
         stage: "identified",
         pipeline: "accounting",
         source: "Sample Newsletter <news@example.org>",
+        amount: 0,
+        expected_closing_date: "2026-11-05",
         event_name: "Sample State CPA Forum 2026",
         event_date: "2026-11-05",
         event_location: "Virtual",
