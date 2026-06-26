@@ -186,12 +186,15 @@ You will be given the contents of ONE email from a newsletter inbox (CPA societi
 
 ## Record an opportunity when the email describes a specific event where the recipient could pitch to SPEAK or present:
 - a call for speakers / call for proposals (CFP) / call for presentations,
-- a newly announced in-person or virtual conference, summit, or seminar that features speakers,
-- a CPE session, panel, or breakout seeking presenters.
+- a newly announced in-person conference, summit, or seminar that features speakers,
+- an in-person CPE session, panel, or breakout seeking presenters.
 
-Capture EVERY distinct event in the email — newsletters often list several. Record each event once, even if it appears in several places.
+IN-PERSON ONLY: Sea King's accounting course earns CPE credit only when delivered in person, so record ONLY in-person events. Do NOT record webinars, virtual or online-only conferences, livestreams, or remote sessions. A hybrid event that offers an in-person option counts — record it with its physical (city/state) location. If the email doesn't state the format, assume in-person unless it clearly signals virtual/online/webinar.
+
+Capture EVERY distinct in-person event in the email — newsletters often list several. Record each event once, even if it appears in several places.
 
 ## Do NOT record (call the tool with an empty array if the email has none of the above):
+- webinars, virtual / online-only conferences, livestreams, or remote sessions (not in-person),
 - generic marketing, product or membership promotions, surveys, job postings,
 - invitations to REGISTER or ATTEND as a participant with no speaking angle,
 - sponsor/exhibitor offers with no speaking component, or recaps of past events.
@@ -200,10 +203,10 @@ If you are unsure whether something is a real speaking opportunity, record it wi
 ## Filling each field:
 - name: short, scannable CRM title, ideally "<TYPE> — <ORG> <EVENT> <YEAR>", e.g. "CFP — AICPA ENGAGE 2026" or "Speaking — Texas Society of CPAs Tax Summit 2026". Under ~80 chars.
 - event_name: the event's own name, without the prefix.
-- opportunity_type: classify by the FORMAT of the speaking slot, NOT by whether CPE credit is offered (that is what cpe_eligible captures, and most accounting events offer it). Use "panel" or "breakout" when the email names that format; "CPE" only for a dedicated CPE/CE training session or webinar; "speaking" for a general conference speaking slot or keynote; "other" if none fit.
+- opportunity_type: classify by the FORMAT of the speaking slot, NOT by whether CPE credit is offered (that is what cpe_eligible captures, and most accounting events offer it). Use "panel" or "breakout" when the email names that format; "CPE" for a dedicated in-person CPE/CE training session; "speaking" for a general conference speaking slot or keynote; "other" if none fit.
 - cpe_eligible: true only if the email states CPE credit is offered; otherwise false.
 - event_date: when the event takes place. deadline: when the call for speakers/proposals CLOSES. These are different dates — do not swap them.
-- event_location: city and state (e.g. "Orlando, FL"), or "Virtual"/"Online" for remote events.
+- event_location: the physical city and state (e.g. "Orlando, FL"). Virtual/online events are not recorded (see IN-PERSON ONLY above).
 - organizer: the organization hosting the event (e.g. "AICPA", "Florida Institute of CPAs").
 - event_url: the specific event or CFP page URL, if present.
 - confidence: "high" when the email clearly describes a speaking/CFP opportunity with concrete details; "medium" when likely but key details are missing; "low" for borderline or ambiguous cases.
@@ -351,6 +354,23 @@ function toDealRow(opp: Opportunity, source: string) {
   const organizer = text(opp.organizer);
   const deadline = isoDate(opp.deadline);
   const eventDate = isoDate(opp.event_date);
+  const eventName = text(opp.event_name);
+  const eventLocation = text(opp.event_location);
+
+  // In-person only: accounting CPE is accredited only when delivered in person,
+  // so drop clearly virtual / online / webinar events. Hybrids carry a physical
+  // location (per the system prompt) and so pass this check.
+  const locationVirtual =
+    /\b(virtual|online|webinar|webcast|web cast|livestream|live stream|remote)\b/i;
+  const nameVirtual =
+    /\b(virtual|webinar|webcast|web cast|livestream|live stream)\b/i;
+  if (
+    locationVirtual.test(eventLocation ?? "") ||
+    nameVirtual.test(`${name} ${eventName ?? ""}`)
+  ) {
+    return null; // virtual — not usable for in-person accreditation
+  }
+
   const confidence = ["high", "medium", "low"].includes(opp.confidence ?? "")
     ? opp.confidence
     : null;
@@ -365,9 +385,9 @@ function toDealRow(opp: Opportunity, source: string) {
     source: source.slice(0, 500),
     amount: 0,
     expected_closing_date: deadline ?? eventDate ?? today,
-    event_name: text(opp.event_name),
+    event_name: eventName,
     event_date: eventDate,
-    event_location: text(opp.event_location),
+    event_location: eventLocation,
     opportunity_type: type,
     cpe_eligible: opp.cpe_eligible === true,
     deadline,

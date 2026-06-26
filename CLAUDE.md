@@ -61,6 +61,7 @@ unchanged**. When writing code or SQL, use the real names:
 
 **Backend — inbox agent (`supabase/functions/scan_inbox/index.ts`):**
 - Daily: refresh Gmail token → list `is:unread` → fetch bodies → Claude extracts opportunities via a **forced tool call** into a fixed schema → validate → dedup (`deals.dedup_key`) → insert at stage `identified`, pipeline `accounting`, with `source` set → mark email read. Bounded by `MAX_EMAILS_PER_RUN` (20) and concurrency 4.
+- **In-person only (accounting):** SKC's accounting CPE is accredited only when delivered in person, so the agent records ONLY in-person events. The system prompt excludes webinars/virtual/online/livestream/remote, and `toDealRow` has a deterministic backstop that drops a row whose `event_location` (or name) matches `virtual|online|webinar|webcast|livestream|remote`. Hybrid events keep their physical city/state and pass. (If the CPG pipeline launches and allows virtual, scope this check to `pipeline === 'accounting'`.)
 - **Security:** the model gets no tools that act and no DB access; email is untrusted data. Code validates every row before inserting with the service-role key.
 - **Auth:** `verify_jwt = false` (see `config.toml`); the daily cron must send `Authorization: Bearer <SCAN_INBOX_SECRET>`.
 - Idempotency table support: `deals.dedup_key` (unique partial index). No separate scan-state table — "unread → mark read" is the watermark.
